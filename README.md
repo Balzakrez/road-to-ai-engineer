@@ -1,0 +1,3 @@
+Benvenuti in questa repository! Questo spazio nasce come un "laboratorio personale" per unire la teoria matematica e algoritmica all'applicazione pratica, con l'obiettivo finale di consolidare le competenze necessarie per diventare un AI Engineer.
+In questa repository raccoglierò una serie di esperimenti incrementali: dai fondamenti del Machine Learning classico (come predittori lineari, regressione logistica e perceptron) utilizzando librerie standard come Scikit-Learn, NumPy e Pandas, fino a esplorare architetture e concetti via via più avanzati.
+Ogni script qui contenuto è un passo per colmare la distanza tra i concetti accademici e le best practice di software engineering applicate al mondo dell'IA.

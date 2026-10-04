@@ -1,20 +1,19 @@
 import json
 import os
 import random
-
 import pandas as pd
-
+from sklearn.svm import LinearSVC
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
-from sqlalchemy import desc, select, func
-from sqlalchemy.orm import sessionmaker
-
-from fastapi import FastAPI, UploadFile, File
-from  database import TransazioneModel, Base, engine
-
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.svm import LinearSVC
-
+from sqlalchemy import delete, desc, select, func
+from sqlalchemy.orm import sessionmaker
+from fastapi import Depends
+from sqlalchemy.orm import Session
+from fastapi import FastAPI, UploadFile, File
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from database import TransazioneModel, Base, engine
 
 # Controlla se il db è già stato creato
 DB_FILE = "finance.db"
@@ -24,9 +23,19 @@ if os.path.exists(DB_FILE):
 # Creazione app
 app = FastAPI()
 
+
+# Monta la cartella 'static' per servire file CSS/JS se necessari in futuro
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Creazione db
 SessionLocal = sessionmaker(bind=engine)
-db = SessionLocal()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 # Crea fisicamente le tabelle nel database SQLite se non esistono già
 Base.metadata.create_all(bind=engine)
@@ -90,35 +99,17 @@ def addestra_e_classifica(df_clean_duplicates: pd.DataFrame):
     return transazioni_da_salvare
 
 
+@app.get("/")
+def read_index():
+    return FileResponse("static/index.html")
+
+
 @app.get("/api/hello")
 def saluta():
     return {"messaggio": "Hello World"}
 
-
-@app.post("/api/transizioni/import")
-def importa(file_xls: UploadFile = File(...)): 
-    df = pd.read_excel(file_xls.file, header=2)
-
-    print(df.head())
-    print(df.columns.tolist())
-    print(df.shape)
-
-    df_clean = df.dropna(subset=["Descrizione operazioni"]).copy()
-
-    df_clean["Tipo Movimento"] = df_clean["Importo (euro)"].apply(lambda x: "USCITA" if x < 0 else "ENTRATA")
-    df_clean["Importo (euro)"] = df_clean["Importo (euro)"].abs()
-
-    df_clean_duplicates = df_clean.drop_duplicates(subset=["Data Contabile", "Importo (euro)", "Descrizione operazioni"])
-
-    transazioni_da_salvare = addestra_e_classifica(df_clean_duplicates)
-    
-    db.add_all(transazioni_da_salvare)
-    db.commit()
-    db.close()
-    
-
 @app.get("/api/analytics/riepilogo")
-def riepilogo():
+def riepilogo(db: Session = Depends(get_db)):
     totale_entrate = db.scalar(
         select(func.sum(TransazioneModel.importo))
         .where(TransazioneModel.tipo_movimento=="ENTRATA")
@@ -139,7 +130,7 @@ def riepilogo():
 
 
 @app.get("/api/transizioni")
-def lista_transizioni():
+def lista_transizioni(db: Session = Depends(get_db)):
     transazioni = db.scalars(select(TransazioneModel)).all()
     return [
         {
@@ -152,3 +143,33 @@ def lista_transizioni():
         }
         for t in transazioni
     ]
+
+@app.get("/api/analytics/reset")
+def reset(db: Session = Depends(get_db)):
+    statement = delete(TransazioneModel)
+    db.execute(statement)
+    db.commit()
+    return {"messaggio": "Database resettato con successo"}
+
+
+@app.post("/api/transizioni/import")
+def importa(file_xlsx: UploadFile = File(...), db: Session = Depends(get_db)): 
+    df = pd.read_excel(file_xlsx.file, header=2)
+
+    print(df.head())
+    print(df.columns.tolist())
+    print(df.shape)
+
+    df_clean = df.dropna(subset=["Descrizione operazioni"]).copy()
+
+    df_clean["Tipo Movimento"] = df_clean["Importo (euro)"].apply(lambda x: "USCITA" if x < 0 else "ENTRATA")
+    df_clean["Importo (euro)"] = df_clean["Importo (euro)"].abs()
+
+    df_clean_duplicates = df_clean.drop_duplicates(subset=["Data Contabile", "Importo (euro)", "Descrizione operazioni"])
+
+    transazioni_da_salvare = addestra_e_classifica(df_clean_duplicates)
+    
+    db.add_all(transazioni_da_salvare)
+    db.commit()
+    
+
